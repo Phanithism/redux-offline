@@ -2,7 +2,7 @@
 
 import type { AppState, Config, OfflineAction, ResultAction, Outbox } from './types';
 import { OFFLINE_SEND, OFFLINE_SCHEDULE_RETRY } from './constants';
-import { completeRetry, scheduleRetry } from './actions';
+import { completeRetry, scheduleRetry, busy } from './actions';
 
 const after = (timeout = 0) => {
   return new Promise(resolve => setTimeout(resolve, timeout));
@@ -23,6 +23,7 @@ const take = (state: AppState, config: Config): Outbox => {
 
 const send = (action: OfflineAction, dispatch, config: Config, retries = 0) => {
   const metadata = action.meta.offline;
+  dispatch(busy(true));
   return config
     .effect(metadata.effect, action)
     .then(result => dispatch(complete(metadata.commit, true, result)))
@@ -50,7 +51,13 @@ export const createOfflineMiddleware = (config: Config) => (store: any) => (next
   const result = next(action);
 
   // find any actions to send, if any
-  const state: AppState = store.getState();
+  let state: AppState = store.getState();
+  if (config.immutable) {
+    if (!state.toJS) {
+      throw new Error('Config.immutable is set to true but your root state is not immutable');
+    }
+    state = state.toJS();
+  }
   const actions = take(state, config);
 
   // if the are any actions in the queue that we are not
